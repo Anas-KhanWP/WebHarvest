@@ -5,13 +5,32 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 
+def acceptcookie(driver):
+    accept_cookie = WebDriverWait(driver, 30).until(
+        EC.presence_of_element_located((By.XPATH, "//button[@class='btn btn-primary accept-all-cookies']"))
+    )
+
+    if accept_cookie:
+        accept_cookie.click()
+
+
+def closepopup(driver):
+    close_button = WebDriverWait(driver, 30).until(
+        EC.presence_of_element_located((By.XPATH, '//i[@class="material-icons"][text()="close"]'))
+    )
+
+    if close_button:
+        close_button.click()
+
+
+driver = webdriver.Chrome()
 
 # Load the webpage
 driver.get("https://www.produceshop.fr/meubles-interieur/fauteuils-relax/fauteuils-inclinables/fauteuil-relax-inclinable-avec-repose-pieds-en-similicuir-design-aurora")
 
 # Assuming these functions are defined elsewhere in your code
-closepopup()
-acceptcookie()
+closepopup(driver)
+acceptcookie(driver)
 
 # Get the page source
 page_source = driver.page_source
