@@ -1,9 +1,13 @@
+import csv
 import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import StaleElementReferenceException
 
 
 def acceptcookie(driver):
@@ -61,16 +65,19 @@ def checkavailablity(soup):
     """
     availabily_check = soup.find("span", class_="product-info-label stock-date")
 
-    print(f"total elements => {len(availabily_check)}")
-
     if "Product availability" in availabily_check.text or "Disponibilité produit" in availabily_check.text:
-        print("Element found")
         style_value = availabily_check.get("style")
-        print(style_value)
         if style_value and ("display:none" in style_value or "display: none" in style_value):
             print(availabily_check.text)
             print("Product is available")
             return True
+        else:
+            print("Product is unavailable")
+            estimated_time = WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "product-info-value.estimated-shipping-date"))
+            )
+            time_ = estimated_time.text
+            return time_
     else:
         print("no element")
         return False
@@ -114,24 +121,170 @@ def getprice(soup):
         return None
 
 
+def gethtml(driver):
+    """
+    Gets the HTML of the webpage.
+
+    Args:
+    - driver: Selenium WebDriver instance.
+
+    Returns:
+    str: HTML of the webpage if found, None otherwise.
+    """
+    try:
+        # Get the page source
+        page_source = driver.page_source
+
+        # Parse the page source with BeautifulSoup
+        soup = BeautifulSoup(page_source, "html.parser")
+        return soup
+    except:
+        return None
+
+
+def totaloptions(options):
+    # Count the number of options
+    options_count = str(len(options))
+    print("Total options => ", options_count)
+    return options_count
+
+
+def selectvariant(driver, url):
+    try:
+        variants_dropdown = WebDriverWait(driver, 30).until(
+            EC.element_to_be_clickable((By.CLASS_NAME, "form-control.form-control-select"))
+        )
+
+        # Get all the options within the select element
+        options = Select(variants_dropdown).options
+        total_variants = len(options)
+        print(f"Total options => {total_variants}")
+
+        # Get aria-label attribute of select element
+        aria_label = variants_dropdown.get_attribute("aria-label")
+        print(f"Select Aria Label: {aria_label}")
+
+        option_texts = []
+        option_vals = []
+        option_titles = []
+
+        for index in range(total_variants):  # Iterate through all options
+            # Get the text, value, and title of the option
+            option_text = options[index].text
+            option_texts.append(option_text)
+            option_value = options[index].get_attribute("value")
+            option_vals.append(option_value)
+            option_title = options[index].get_attribute("title")
+            option_titles.append(option_title)
+
+        with open('output_2.csv', mode='a', newline='') as file:
+            writer = csv.writer(file)
+
+            # Write the header row
+            writer.writerow(
+                [
+                    'product name',
+                    'url',
+                    'variant',
+                    'availabily',
+                    'price'
+                ]
+            )
+            # Iterate over the lists simultaneously using zip
+            for option_text, option_val, option_title in zip(option_texts, option_vals, option_titles):
+                if '(' in option_text:
+                    # Extract the option text without the additional information
+                    clean_option_text = option_text.split('(')[0].strip()
+                    print(f"Option text: {clean_option_text}, Value: {option_val}, Title: {option_title}")
+
+                    new_url = f"{url}#/{option_val}-{aria_label}-{option_title}"
+                    print(new_url)
+                    driver.get(new_url)
+                    time.sleep(2)  # Wait for 5 seconds
+                    driver.refresh()
+                    time.sleep(5)
+
+                    # Get the page source
+                    soup = gethtml(driver)
+
+                    availability = checkavailablity(soup)
+                    print(availability)
+
+                    # if availability:
+                    name = getname(soup)
+                    price = getprice(soup)
+
+                else:
+                    print(f"Option text: {option_text}, Value: {option_val}, Title: {option_title}")
+                    new_url = f"{url}#/{option_val}-{aria_label}-{option_title}"
+                    print(new_url)
+                    driver.get(new_url)
+                    time.sleep(2)  # Wait for 5 seconds
+                    driver.refresh()
+                    time.sleep(5)
+
+                    # Get the page source
+                    soup = gethtml(driver)
+
+                    availability = checkavailablity(soup)
+                    print(availability)
+
+                    # if availability:
+                    name = getname(soup)
+                    price = getprice(soup)
+
+                # Write the extracted information to the CSV file
+                writer.writerow(
+                    [
+                        name,
+                        new_url,
+                        option_title,
+                        availability,
+                        price
+                    ]
+                )
+
+        print("I am done")
+    except Exception as e:
+        print(f"Error occurred: {e}")
+
+
+def read_urls_from_csv(filename):
+    urls = []
+    with open(filename, mode='r') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            urls.append(row[0])  # Assuming URLs are in the first column
+    return urls
+
+
 if __name__ == "__main__":
-    driver = webdriver.Chrome()
+    # Create Chrome options
+    chrome_options = Options()
 
-    # Load the webpage
-    driver.get("https://www.produceshop.fr/meubles-interieur/fauteuils-relax/fauteuils-inclinables/fauteuil-relax-inclinable-avec-repose-pieds-en-similicuir-design-aurora")
+    # Add options to make Chrome run faster
+    chrome_options.add_argument("--disable-extensions")  # Disable extensions
+    chrome_options.add_argument("--disable-gpu")  # Disable GPU usage
+    chrome_options.add_argument("--no-sandbox")  # Disable sandbox
+    chrome_options.add_argument("--disable-dev-shm-usage")  # Disable shared memory usage
+    # chrome_options.add_argument("--dns-prefetch-disable")  # Disable DNS prefetching
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")  # Disable VizDisplayCompositor
+    chrome_options.add_argument("--disable-site-isolation-trials")  # Disable site isolation trials
+    chrome_options.add_argument("--ignore-certificate-errors")  # Ignore certificate errors
+    chrome_options.add_argument("--ignore-ssl-errors")  # Ignore SSL errors
 
-    # Assuming these functions are defined elsewhere in your code
-    closepopup(driver)
-    acceptcookie(driver)
+    driver = webdriver.Chrome(options=chrome_options)
 
-    # Get the page source
-    page_source = driver.page_source
+    # Read URLs from CSV file
+    csv_filename = "urls.csv"  # Change this to your CSV file path
+    urls = read_urls_from_csv(csv_filename)
 
-    # Parse the page source with BeautifulSoup
-    soup = BeautifulSoup(page_source, "html.parser")
+    for url in urls:
+        print(url)
+        # Load the webpage
+        driver.get(url)
 
-    availability = checkavailablity(soup)
+        closepopup(driver)
+        acceptcookie(driver)
 
-    if availability:
-        name = getname(soup)
-        price = getprice(soup)
+        selectvariant(driver, url)
