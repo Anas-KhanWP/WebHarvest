@@ -1,5 +1,7 @@
 import csv
 import time
+import tkinter as tk
+from tkinter import filedialog
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -8,6 +10,16 @@ from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
+
+
+def select_file():
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    # Open a file dialog for selecting a file
+    file_path = filedialog.askopenfilename(title="Select file with URLs", filetypes=[("CSV files", "*.csv")])
+
+    return file_path
 
 
 def acceptcookie(driver):
@@ -149,16 +161,34 @@ def totaloptions(options):
     return options_count
 
 
-def selectvariant(driver, url):
-    try:
-        variants_dropdown = WebDriverWait(driver, 30).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "form-control.form-control-select"))
-        )
+def getdropdown(driver):
+    variants_dropdown = WebDriverWait(driver, 30).until(
+        EC.element_to_be_clickable((By.CLASS_NAME, "form-control.form-control-select"))
+    )
 
-        # Get all the options within the select element
-        options = Select(variants_dropdown).options
-        total_variants = len(options)
-        print(f"Total options => {total_variants}")
+    # Get all the options within the select element
+    options = Select(variants_dropdown).options
+    total_variants = len(options)
+    print(f"Total options => {total_variants}")
+    return options, variants_dropdown, total_variants
+
+
+def selectvariant(driver, url):
+    """
+    This function selects a variant for a product on a webpage. It iterates through all the options in the variants dropdown and extracts the product name, price, and availability for each option. The function also records the selected option in a CSV file.
+
+    Args:
+        driver (selenium.webdriver.remote.webdriver.WebDriver): A Selenium WebDriver instance.
+        url (str): The URL of the product page.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: If an error occurs while selecting the variant.
+    """
+    try:
+        options, variants_dropdown, total_variants = getdropdown(driver)
 
         # Get aria-label attribute of select element
         aria_label = variants_dropdown.get_attribute("aria-label")
@@ -180,16 +210,6 @@ def selectvariant(driver, url):
         with open('output_2.csv', mode='a', newline='') as file:
             writer = csv.writer(file)
 
-            # Write the header row
-            writer.writerow(
-                [
-                    'product name',
-                    'url',
-                    'variant',
-                    'availabily',
-                    'price'
-                ]
-            )
             # Iterate over the lists simultaneously using zip
             for option_text, option_val, option_title in zip(option_texts, option_vals, option_titles):
                 if '(' in option_text:
@@ -267,7 +287,7 @@ if __name__ == "__main__":
     chrome_options.add_argument("--disable-gpu")  # Disable GPU usage
     chrome_options.add_argument("--no-sandbox")  # Disable sandbox
     chrome_options.add_argument("--disable-dev-shm-usage")  # Disable shared memory usage
-    # chrome_options.add_argument("--dns-prefetch-disable")  # Disable DNS prefetching
+    chrome_options.add_argument("--dns-prefetch-disable")  # Disable DNS prefetching
     chrome_options.add_argument("--disable-features=VizDisplayCompositor")  # Disable VizDisplayCompositor
     chrome_options.add_argument("--disable-site-isolation-trials")  # Disable site isolation trials
     chrome_options.add_argument("--ignore-certificate-errors")  # Ignore certificate errors
@@ -275,8 +295,13 @@ if __name__ == "__main__":
 
     driver = webdriver.Chrome(options=chrome_options)
 
+    # Ask user to select CSV file
+    csv_filename = select_file()
+    if not csv_filename:
+        print("No file selected. Exiting.")
+        exit()
+
     # Read URLs from CSV file
-    csv_filename = "urls.csv"  # Change this to your CSV file path
     urls = read_urls_from_csv(csv_filename)
 
     for url in urls:
