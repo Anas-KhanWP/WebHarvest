@@ -9,6 +9,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import pandas as pd
 from selenium.common.exceptions import StaleElementReferenceException
 
 
@@ -82,13 +83,14 @@ def checkavailablity(soup):
         if style_value and ("display:none" in style_value or "display: none" in style_value):
             print(availabily_check.text)
             print("Product is available")
-            return True
+            return "Available"
         else:
             print("Product is unavailable")
             estimated_time = WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "product-info-value.estimated-shipping-date"))
             )
             time_ = estimated_time.text
+            print(f"Estimated time => {time_}")
             return time_
     else:
         print("no element")
@@ -151,7 +153,8 @@ def gethtml(driver):
         soup = BeautifulSoup(page_source, "html.parser")
         return soup
     except:
-        return None
+        print("HTML not found, Retrying...")
+        gethtml(driver)
 
 
 def totaloptions(options):
@@ -162,109 +165,67 @@ def totaloptions(options):
 
 
 def getdropdown(driver):
-    variants_dropdown = WebDriverWait(driver, 30).until(
-        EC.element_to_be_clickable((By.CLASS_NAME, "form-control.form-control-select"))
-    )
-
-    # Get all the options within the select element
-    options = Select(variants_dropdown).options
-    total_variants = len(options)
-    print(f"Total options => {total_variants}")
-    return options, variants_dropdown, total_variants
+    try:
+        soup = gethtml(driver)
+        # Find the dropdown element
+        variants_dropdown = soup.find(class_="form-control form-control-select")
+        if variants_dropdown:
+            # Find all option elements within the dropdown
+            options = variants_dropdown.find_all('option')
+            total_variants = len(options)
+            print(f"Total options => {total_variants}")
+            return options, variants_dropdown, total_variants
+        else:
+            print("Dropdown not found")
+            return False
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return False
 
 
 def selectvariant(driver, url):
-    """
-    This function selects a variant for a product on a webpage. It iterates through all the options in the variants dropdown and extracts the product name, price, and availability for each option. The function also records the selected option in a CSV file.
-
-    Args:
-        driver (selenium.webdriver.remote.webdriver.WebDriver): A Selenium WebDriver instance.
-        url (str): The URL of the product page.
-
-    Returns:
-        None
-
-    Raises:
-        Exception: If an error occurs while selecting the variant.
-    """
     try:
-        options, variants_dropdown, total_variants = getdropdown(driver)
+        dropdown_data = getdropdown(driver)
 
-        # Get aria-label attribute of select element
-        aria_label = variants_dropdown.get_attribute("aria-label")
-        print(f"Select Aria Label: {aria_label}")
+        if dropdown_data:  # Check if dropdown_data is not False
+            options, variants_dropdown, total_variants = dropdown_data
+            aria_label = variants_dropdown["aria-label"]
 
-        option_texts = []
-        option_vals = []
-        option_titles = []
+            option_vals = []
+            _variants = []
+            availabilities = []
+            prices = []
 
-        for index in range(total_variants):  # Iterate through all options
-            # Get the text, value, and title of the option
-            option_text = options[index].text
-            option_texts.append(option_text)
-            option_value = options[index].get_attribute("value")
-            option_vals.append(option_value)
-            option_title = options[index].get_attribute("title")
-            option_titles.append(option_title)
+            for index in range(total_variants):
+                option_value = options[index]['value']
+                option_vals.append(option_value)
+                variant = options[index]['title']
+                _variants.append(variant)
 
-        with open('output_2.csv', mode='a', newline='') as file:
-            writer = csv.writer(file)
+            for option_val, variant in zip(option_vals, _variants):
+                new_url = f"{url}#/{option_val}-{aria_label}-{variant}"
+                driver.get(new_url)
+                # time.sleep(0.5)
+                driver.refresh()
+                # time.sleep(2)
 
-            # Iterate over the lists simultaneously using zip
-            for option_text, option_val, option_title in zip(option_texts, option_vals, option_titles):
-                if '(' in option_text:
-                    # Extract the option text without the additional information
-                    clean_option_text = option_text.split('(')[0].strip()
-                    print(f"Option text: {clean_option_text}, Value: {option_val}, Title: {option_title}")
+                soup = gethtml(driver)
 
-                    new_url = f"{url}#/{option_val}-{aria_label}-{option_title}"
-                    print(new_url)
-                    driver.get(new_url)
-                    time.sleep(2)  # Wait for 5 seconds
-                    driver.refresh()
-                    time.sleep(5)
+                availability = checkavailablity(soup)
+                availabilities.append(availability)
+                price = getprice(soup)
+                prices.append(price)
 
-                    # Get the page source
-                    soup = gethtml(driver)
+            corpus.loc[len(corpus)] = [url, _variants, availabilities, prices]
 
-                    availability = checkavailablity(soup)
-                    print(availability)
+        else:
+            soup = gethtml(driver)
+            availability = checkavailablity(soup)
+            price = getprice(soup)
+            variant = "No Vairant"
 
-                    # if availability:
-                    name = getname(soup)
-                    price = getprice(soup)
+            corpus.loc[len(corpus)] = [url, variant, availability, price]
 
-                else:
-                    print(f"Option text: {option_text}, Value: {option_val}, Title: {option_title}")
-                    new_url = f"{url}#/{option_val}-{aria_label}-{option_title}"
-                    print(new_url)
-                    driver.get(new_url)
-                    time.sleep(2)  # Wait for 5 seconds
-                    driver.refresh()
-                    time.sleep(5)
-
-                    # Get the page source
-                    soup = gethtml(driver)
-
-                    availability = checkavailablity(soup)
-                    print(availability)
-
-                    # if availability:
-                    name = getname(soup)
-                    price = getprice(soup)
-
-                # Write the extracted information to the CSV file
-                writer.writerow(
-                    [
-                        name,
-                        new_url,
-                        option_title,
-                        availability,
-                        price
-                    ]
-                )
-
-        print("I am done")
     except Exception as e:
         print(f"Error occurred: {e}")
 
@@ -299,17 +260,28 @@ if __name__ == "__main__":
     csv_filename = select_file()
     if not csv_filename:
         print("No file selected. Exiting.")
+        driver.quit()
         exit()
 
     # Read URLs from CSV file
     urls = read_urls_from_csv(csv_filename)
+
+    # Assuming you have initialized an empty DataFrame for your corpus
+    corpus = pd.DataFrame(columns=['url', '_variants', 'availabilities', 'prices'])
 
     for url in urls:
         print(url)
         # Load the webpage
         driver.get(url)
 
-        closepopup(driver)
-        acceptcookie(driver)
+        # closepopup(driver)
+        # acceptcookie(driver)
 
         selectvariant(driver, url)
+
+    print(f"Corpus size => {len(corpus)}")
+    print(f"Corpus => {corpus}")
+    driver.quit()
+
+    # After calling the function for all necessary URLs and rows, you can save the corpus to a CSV file
+    corpus.to_csv('corpus.csv', index=False)
